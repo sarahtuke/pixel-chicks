@@ -118,10 +118,10 @@ class Chick {
     this.particles = [];
   }
 
-  jump(delay) {
+  jump(delay, strength = 10.5) {
     setTimeout(() => {
       if (this.airborne) return;
-      this.vy       = -(10.5 + Math.random() * 2.5);
+      this.vy       = -(strength + Math.random() * 1.5);
       this.airborne = true;
       for (let i = 0; i < 8; i++)
         this.particles.push(new Particle(this.cx, GROUND));
@@ -203,18 +203,40 @@ function playBoing() {
 // ── Input ─────────────────────────────────────────────────────────────────────
 
 let clickCount = 0;
-document.addEventListener('click', () => {
+document.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const clickX = (e.clientX - rect.left) * (W / rect.width);
+
   clickCount++;
   playBoing();
-  chicks.forEach((c, i) => c.jump(i * 58 + Math.random() * 44));
+
+  chicks.forEach(c => {
+    const dist   = Math.abs(c.cx - clickX);
+    const t      = Math.min(1, dist / 420);           // 0 = right on top, 1 = far away
+    const strength = 15 - t * 9;                      // 15 close, 6 far
+    const delay    = dist * 0.7 + Math.random() * 25; // closest jumps first
+    c.jump(delay, strength);
+  });
 });
 
 // ── Background elements (generated once) ──────────────────────────────────────
 
-const tufts = Array.from({ length: 26 }, (_, i) => ({
-  x: 8 + i * (W / 26) + (Math.random() * 8 - 4),
-  h: Math.floor(Math.random() * 5) + 3,
-}));
+// Grass blade heights: mostly short, some tall enough to swallow chicks (SH = 40)
+const GRASS_COLORS = ['#6DC96D', '#5CB85C', '#7AD97A', '#4DB64D', '#88E088'];
+const grassBlades = Array.from({ length: 200 }, () => {
+  const r = Math.random();
+  const h = r < 0.45
+    ? 5  + Math.random() * 14   // short  (5–19)
+    : r < 0.75
+    ? 19 + Math.random() * 18   // medium (19–37)
+    : 37 + Math.random() * 20;  // tall   (37–57) — buries chicks to the neck
+  return {
+    x:        Math.random() * W,
+    h:        h,
+    w:        Math.random() < 0.35 ? 3 : Math.random() < 0.55 ? 2 : 1,
+    colorIdx: Math.floor(Math.random() * GRASS_COLORS.length),
+  };
+});
 
 const clouds = [
   { cx: 58,  cy: 34 },
@@ -253,12 +275,13 @@ function drawBG() {
   ctx.fillStyle = '#3F8F3F';
   ctx.fillRect(0, GROUND, W, 4);
 
-  // Grass tufts
-  ctx.fillStyle = '#6DC96D';
-  for (const t of tufts) {
-    ctx.fillRect(t.x,     GROUND - t.h,     2, t.h + 2);
-    ctx.fillRect(t.x + 4, GROUND - t.h - 2, 2, t.h + 4);
-    ctx.fillRect(t.x + 8, GROUND - t.h + 1, 2, t.h);
+}
+
+// Drawn AFTER chicks so tall blades overlap them
+function drawGrass() {
+  for (const b of grassBlades) {
+    ctx.fillStyle = GRASS_COLORS[b.colorIdx];
+    ctx.fillRect(b.x, GROUND - b.h, b.w, b.h + 4);
   }
 }
 
@@ -280,6 +303,7 @@ function loop() {
   drawBG();
   for (const c of chicks) c.update();
   for (const c of chicks) c.draw();
+  drawGrass();
   drawHUD();
   requestAnimationFrame(loop);
 }

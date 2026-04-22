@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+//new game
+##the index file 
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pixel Baby Chick Farm</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0d1b2a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  cursor: pointer;
+  user-select: none;
+  font-family: 'Courier New', monospace;
+}
+canvas {
+  border-radius: 14px;
+  box-shadow: 0 14px 52px rgba(0,0,0,0.65);
+}
+.subtitle {
+  color: #FFD700;
+  opacity: 0.6;
+  font-size: 0.68rem;
+  margin-top: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="subtitle">click anywhere &mdash; they love it</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 540, H = 300;
+canvas.width = W;
+canvas.height = H;
+
+const S = 5;            // canvas pixels per sprite pixel
+const GROUND = H - 55;  // y where feet rest
+const GRAVITY = 0.48;
+
+// 7-wide × 8-tall pixel sprite
+// 0=transparent  1=yellow  2=orange  3=black(eye)  4=dark-yellow(wing)
+const SPRITE = [
+  [0,0,2,2,0,0,0],   // tuft
+  [0,1,1,1,1,1,0],   // head top
+  [1,1,1,1,1,1,1],   // head full
+  [1,3,1,1,1,3,1],   // eyes
+  [1,1,2,2,2,1,1],   // beak
+  [1,4,1,1,1,4,1],   // wing detail
+  [0,1,1,1,1,1,0],   // lower body
+  [0,2,0,0,0,2,0],   // feet
+];
+
+const PALETTE = ['', '#FFD700', '#FF8C00', '#111111', '#C8A000'];
+const SW = SPRITE[0].length * S;   // 35 px
+const SH = SPRITE.length    * S;   // 40 px
+
+function drawSprite(ox, oy) {
+  for (let r = 0; r < SPRITE.length; r++) {
+    for (let c = 0; c < SPRITE[r].length; c++) {
+      const p = SPRITE[r][c];
+      if (!p) continue;
+      ctx.fillStyle = PALETTE[p];
+      ctx.fillRect(ox + c * S, oy + r * S, S, S);
+    }
+  }
+}
+
+// ── Particle ─────────────────────────────────────────────────────────────────
+
+class Particle {
+  constructor(x, y) {
+    this.x  = x;
+    this.y  = y;
+    this.vx = (Math.random() - 0.5) * 5.5;
+    this.vy = -(Math.random() * 4.5 + 1);
+    this.life = 1;
+    this.size = Math.random() * 3 + 2;
+    this.color = ['#FFD700','#FFFFFF','#FF8C00','#FFF8DC'][Math.floor(Math.random() * 4)];
+  }
+  update() {
+    this.x  += this.vx;
+    this.y  += this.vy;
+    this.vy += 0.28;
+    this.life -= 0.045;
+  }
+  draw() {
+    ctx.globalAlpha = Math.max(0, this.life);
+    ctx.fillStyle   = this.color;
+    ctx.fillRect(
+      Math.round(this.x - this.size / 2),
+      Math.round(this.y - this.size / 2),
+      Math.round(this.size),
+      Math.round(this.size)
+    );
+  }
+}
+
+// ── Chick ─────────────────────────────────────────────────────────────────────
+
+class Chick {
+  constructor(cx, facing) {
+    this.cx       = cx;
+    this.y        = GROUND;   // y of feet (anchor)
+    this.vy       = 0;
+    this.airborne = false;
+    this.facing   = facing;   // 1 = right, -1 = left
+    this.sx       = 1;        // horizontal scale
+    this.sy       = 1;        // vertical scale
+    this.particles = [];
+  }
+
+  jump(delay, strength = 10.5) {
+    setTimeout(() => {
+      if (this.airborne) return;
+      this.vy       = -(strength + Math.random() * 1.5);
+      this.airborne = true;
+      for (let i = 0; i < 8; i++)
+        this.particles.push(new Particle(this.cx, GROUND));
+    }, delay);
+  }
+
+  update() {
+    if (this.airborne) {
+      this.vy += GRAVITY;
+      this.y  += this.vy;
+      // stretch up, squash down
+      this.sy = this.vy < 0 ? 1.18 : 0.90;
+      this.sx = this.vy < 0 ? 0.85 : 1.10;
+      if (this.y >= GROUND) {
+        this.y        = GROUND;
+        this.vy       = 0;
+        this.airborne = false;
+        this.sy       = 0.62;   // landing squash
+        this.sx       = 1.45;
+      }
+    } else {
+      // spring back to normal shape
+      this.sx += (1 - this.sx) * 0.22;
+      this.sy += (1 - this.sy) * 0.22;
+    }
+    this.particles = this.particles.filter(p => { p.update(); return p.life > 0; });
+  }
+
+  draw() {
+    const rise = GROUND - this.y;
+
+    // Shadow (shrinks as chick rises)
+    const shadowR = (SW * 0.44) / (1 + rise * 0.013);
+    ctx.fillStyle = `rgba(0,0,0,${0.2 / (1 + rise * 0.013)})`;
+    ctx.beginPath();
+    ctx.ellipse(this.cx, GROUND + 4, shadowR, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Sprite: anchor = bottom-center = (cx, y)
+    ctx.save();
+    ctx.translate(this.cx, this.y);
+    ctx.scale(this.facing * this.sx, this.sy);
+    drawSprite(-SW / 2, -SH);
+    ctx.restore();
+
+    // Particles
+    for (const p of this.particles) p.draw();
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ── Create flock ──────────────────────────────────────────────────────────────
+
+const chicks = [52, 130, 208, 286, 364, 452].map(
+  (x, i) => new Chick(x, i % 2 === 0 ? 1 : -1)
+);
+
+// ── Audio ─────────────────────────────────────────────────────────────────────
+
+let audioCtx = null;
+function playBoing() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const t = audioCtx.currentTime;
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(820, t);
+    osc.frequency.exponentialRampToValueAtTime(270, t + 0.16);
+    gain.gain.setValueAtTime(0.2, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.22);
+  } catch (_) {}
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+
+let clickCount = 0;
+document.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const clickX = (e.clientX - rect.left) * (W / rect.width);
+
+  clickCount++;
+  playBoing();
+
+  chicks.forEach(c => {
+    const dist   = Math.abs(c.cx - clickX);
+    const t      = Math.min(1, dist / 420);           // 0 = right on top, 1 = far away
+    const strength = 15 - t * 9;                      // 15 close, 6 far
+    const delay    = dist * 0.7 + Math.random() * 25; // closest jumps first
+    c.jump(delay, strength);
+  });
+});
+
+// ── Background elements (generated once) ──────────────────────────────────────
+
+// Grass blade heights: mostly short, some tall enough to swallow chicks (SH = 40)
+const GRASS_COLORS = ['#6DC96D', '#5CB85C', '#7AD97A', '#4DB64D', '#88E088'];
+const grassBlades = Array.from({ length: 200 }, () => {
+  const r = Math.random();
+  const h = r < 0.45
+    ? 5  + Math.random() * 14   // short  (5–19)
+    : r < 0.75
+    ? 19 + Math.random() * 18   // medium (19–37)
+    : 37 + Math.random() * 20;  // tall   (37–57) — buries chicks to the neck
+  return {
+    x:        Math.random() * W,
+    h:        h,
+    w:        Math.random() < 0.35 ? 3 : Math.random() < 0.55 ? 2 : 1,
+    colorIdx: Math.floor(Math.random() * GRASS_COLORS.length),
+  };
+});
+
+const clouds = [
+  { cx: 58,  cy: 34 },
+  { cx: 220, cy: 20 },
+  { cx: 388, cy: 44 },
+];
+
+function drawCloud(cx, cy) {
+  ctx.fillStyle = 'rgba(255,255,255,0.82)';
+  [[0,0],[1,0],[2,0],[3,0],[1,-1],[2,-1]].forEach(([dx, dy]) => {
+    ctx.fillRect(cx + dx * 11, cy + dy * 11, 11, 11);
+  });
+}
+
+function drawBG() {
+  // Sky gradient
+  const sky = ctx.createLinearGradient(0, 0, 0, GROUND);
+  sky.addColorStop(0, '#3A9BD5');
+  sky.addColorStop(1, '#B8E0F5');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, GROUND);
+
+  // Pixelated sun
+  ctx.fillStyle = '#FFE55C';
+  for (let dy = -2; dy <= 2; dy++)
+    for (let dx = -2; dx <= 2; dx++)
+      if (dx * dx + dy * dy <= 4)
+        ctx.fillRect(464 + dx * 7, 30 + dy * 7, 7, 7);
+
+  // Clouds
+  for (const c of clouds) drawCloud(c.cx, c.cy);
+
+  // Grass base
+  ctx.fillStyle = '#57A857';
+  ctx.fillRect(0, GROUND, W, H - GROUND);
+  ctx.fillStyle = '#3F8F3F';
+  ctx.fillRect(0, GROUND, W, 4);
+
+}
+
+// Drawn AFTER chicks so tall blades overlap them
+function drawGrass() {
+  for (const b of grassBlades) {
+    ctx.fillStyle = GRASS_COLORS[b.colorIdx];
+    ctx.fillRect(b.x, GROUND - b.h, b.w, b.h + 4);
+  }
+}
+
+function drawHUD() {
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.font = '11px "Courier New", monospace';
+  ctx.textAlign = 'right';
+  if (clickCount === 0) {
+    ctx.fillText('[ click! ]', W - 10, H - 10);
+  } else {
+    ctx.fillText(`jumps: ${clickCount}`, W - 10, H - 10);
+  }
+}
+
+// ── Main loop ─────────────────────────────────────────────────────────────────
+
+function loop() {
+  ctx.clearRect(0, 0, W, H);
+  drawBG();
+  for (const c of chicks) c.update();
+  for (const c of chicks) c.draw();
+  drawGrass();
+  drawHUD();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
+
+#Superfly
+
